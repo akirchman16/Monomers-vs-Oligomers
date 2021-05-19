@@ -5,20 +5,23 @@ close all;
 % This code takes solution of RAD51 in equilibrium between monomers and
 % dimers and performs a Gillespie lattice model with the corresponding
 % solution. The concentrations of RAD51 in solution is assumed to remain
-% constant. The First-Reaction method is used for the Gillespie Algorithm.
+% constant. This is the same as the previous ratio model except that both
+% monomers and dimers are allowed to unbind. In the previous model only
+% monomers were allowed to unbind from the ssDNA lattice. The
+% First-Reaction method is used for the Gillespie Algorithm.
 
 N = 8660;
 n = 3;  %length of a monomer
 w = 1;
 L_Total = 2;    %total concentration of RAD51
-Percent_Monomer = [1];   %Percentage of solution which is monomers
+Percent_Monomer = [0,0.5,1];   %Percentage of solution which is monomers
 k_on = 1;   %kinetic rate constants
 k_off = 1;
 
 minIterations = 1000;
 
 %Memory Allocation
-EventFractions = zeros(numel(Percent_Monomer),7);
+EventFractions = zeros(numel(Percent_Monomer),8);
 FracCover = zeros(numel(Percent_Monomer),minIterations);
 t = zeros(numel(Percent_Monomer),minIterations);
 Max_Time = zeros(1,numel(Percent_Monomer));
@@ -37,13 +40,13 @@ for Ratio = Percent_Monomer
     BoundAtSpot = zeros(1,N);   %records where monomers are bound on lattice
 
     %Memroy Allocations
-    Populations = zeros(minIterations,7);
-    a = zeros(minIterations,7);
-    Probabilities = zeros(minIterations,7);
-    FiringAmounts = zeros(minIterations,7);
+    Populations = zeros(minIterations,8);
+    a = zeros(minIterations,8);
+    Probabilities = zeros(minIterations,8);
+    FiringAmounts = zeros(minIterations,8);
     dt = zeros(1,minIterations);
     j = zeros(1,minIterations);
-    Location_History = zeros(7,minIterations);
+    Location_History = zeros(8,minIterations);
 
     Equilibrium = 0;
     Events = 0;
@@ -54,32 +57,8 @@ for Ratio = Percent_Monomer
 %         end
         Events = Events+1;    
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-        clear Left
-        clear Right
-        clear Gap_Size
-        clear Left_Available_M
-        clear Right_Available_M
-        clear Left_Available_D
-        clear Right_Available_D
-        clear Right_BindingSite_M
-        clear Right_BindingSite_D
-        clear Gaps_L2_M
-        clear Gaps_R2_M
-        clear Gaps_L2_D
-        clear Gaps_R2_D
-        clear Gap_Size2_M
-        clear Gap_Size2_D
-        clear Gap_SizeI_M
-        clear Gap_SizeI_D
-        clear Left_I_M
-        clear Left_I_D
-        clear Isolated_M
-        clear SinglyContiguous_M
-        clear DoublyContiguous_M
-        clear Isolated_D
-        clear SinglyContiguous_D
-        clear DoublyContiguous_D
+        searcH_vars = {'Left','Right','Gap_Size','Left_Available_M','Right_Available_M','Left_Available_D','Right_Available_D','Right_BindingSite_M','Right_BindingSite_D','Gaps_L2_M','Gaps_R2_M','Gaps_L2_D','Gaps_R2_D','Gap_Size2_M','Gap_Size2_D','Gap_SizeI_M','Gap_SizeI_D','Left_I_M','Left_I_D','Isolated_M','SinglyContiguous_M','Doubly_Contiguous_M','Isolated_D','SinglyContiguous_D','DoublyContiguous_D','Left_Filaments','Right_Filaments','Filament_Lengths','Left_Dimer_Filaments','Dimer_Filament_Lengths','Monomers_per_Dimer_Filaments','Left_Dimer_Locations'};
+        clear searcH_vars;
 
         Left = find(diff([1 DNA 1]) == -1);
         Right = find(diff([1 DNA 1]) == 1)-1;
@@ -124,6 +103,26 @@ for Ratio = Percent_Monomer
             Isolated_D(find(Isolated_D == 0,1):find(Isolated_D == 0,1)+Gap_SizeI_D(k)-(2*n+1)-1+logical(N == Left_I_D(k)+Gap_SizeI_D(k)-1)+logical(Left_I_D(k) == 1)) = Left_I_D(k)+(1-logical(Left_I_D(k) == 1):Gap_SizeI_D(k)-(2*n+1)+logical(N == Left_I_D(k)+Gap_SizeI_D(k)-1));
         end
 
+        %Search for dimers
+        Left_Filaments = find(diff([0 DNA 0]) == 1);    %left ends of all filaments
+        Right_Filaments = find(diff([0 DNA 0]) == -1)-1;   %right ends of all filaments
+        Filament_Lengths = Right_Filaments-Left_Filaments+1;    %lengths of all filaments
+        Left_Dimer_Filaments = Left_Filaments(Filament_Lengths > n);   %left end of filament that contains at least a single dimer
+        Dimer_Filament_Lengths = Filament_Lengths(Filament_Lengths > n);    %lengths of alll filaments that contain a dimer
+        Monomers_per_Dimer_Filaments = Dimer_Filament_Lengths./n;    %number of monomers in each dimer filament
+        Left_Dimer_Locations = [];
+        if numel(Dimer_Filament_Lengths) > 0
+            for f = 1:numel(Dimer_Filament_Lengths)
+                if Dimer_Filament_Lengths(f) == 2*n    %if there's only one dimer, add only the end of the filament
+                    Left_Dimer_Locations = [Left_Dimer_Locations, Left_Dimer_Filaments(f)];
+                else   %otherwise add at each monomer location
+                    for g = 1:Monomers_per_Dimer_Filaments(f)-1
+                        Left_Dimer_Locations = [Left_Dimer_Locations, Left_Dimer_Filaments(f)+((g-1)*n)];   %adds location of each possible dimer in a long filament
+                    end
+                end
+            end
+        end
+        
         %Population Numbers
         xB_IM = length(Isolated_M);
         xB_SCM = length(Singly_Contiguous_M);
@@ -131,15 +130,16 @@ for Ratio = Percent_Monomer
         xB_ID = length(Isolated_D);
         xB_SCD = length(Singly_Contiguous_D);
         xB_DCD = length(Doubly_Contiguous_D);
-        xAB = sum(DNA)/n;
+        xAB_M = sum(DNA)/n;
+        xAB_D = numel(Left_Dimer_Locations);
 
-        Populations(Events,:) = [xB_IM,xB_SCM,xB_DCM,xB_ID,xB_SCD,xB_DCD,xAB];
+        Populations(Events,:) = [xB_IM,xB_SCM,xB_DCM,xB_ID,xB_SCD,xB_DCD,xAB_M,xAB_D];
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-        a(Events,:) = Populations(Events,:).*[k_on*L_Monomer(Loops),k_on*L_Monomer(Loops)*w,k_on*L_Monomer(Loops)*(w^2),k_on*L_Dimer(Loops),k_on*L_Dimer(Loops)*w,k_on*L_Dimer(Loops)*(w^2),k_off];
+        a(Events,:) = Populations(Events,:).*[k_on*L_Monomer(Loops),k_on*L_Monomer(Loops)*w,k_on*L_Monomer(Loops)*(w^2),k_on*L_Dimer(Loops),k_on*L_Dimer(Loops)*w,k_on*L_Dimer(Loops)*(w^2),k_off,k_off];
         Probabilities(Events,:) = a(Events,:)./sum(a(Events,:));
 
-        r = [rand,rand,rand,rand,rand,rand,rand];
+        r = [rand,rand,rand,rand,rand,rand,rand,rand];
         tau = (1./a(Events,:)).*log(1./r);
         FiringAmounts(Events,:) = a(Events,:).*tau;
         dt(Events) = min(tau);
@@ -184,6 +184,12 @@ for Ratio = Percent_Monomer
             DNA(Unbind_Spot:Unbind_Spot+(n-1)) = 0;
             Location_History(7,Events) = Unbind_Spot;
             BoundAtSpot(Unbind_Spot) = 0;
+        elseif j(Events) == 8   %Dimer unbinding
+            Dimer_Unbind_Spot = Left_Dimer_Locations(randi(length(Left_Dimer_Locations)));
+            DNA(Dimer_Unbind_Spot:Dimer_Unbind_Spot+((2*n)-1)) = 0;
+            Location_History(8,Events) = Dimer_Unbind_Spot;
+            BoundAtSpot(Dimer_Unbind_Spot) = 0;
+            BoundAtSpot(Dimer_Unbind_Spot+n) = 0;
         end
 
         FracCover(Loops,Events+1) = sum(DNA)/N;
@@ -209,12 +215,9 @@ for Ratio = Percent_Monomer
         end
     end
 
-    EventFractions(Loops,:) = [numel(find(j==1)),numel(find(j==2)),numel(find(j==3)),numel(find(j==4)),numel(find(j==5)),numel(find(j==6)),numel(find(j==7))]./Events;
+    EventFractions(Loops,:) = [numel(find(j==1)),numel(find(j==2)),numel(find(j==3)),numel(find(j==4)),numel(find(j==5)),numel(find(j==6)),numel(find(j==7)),numel(find(j==8))]./Events;
     Max_Time(Loops) = max(t(Loops,:));
-    
-    Equilibrium_Coverage(Loops) = mean(FracCoverStates);
-    disp(['(Ratio = ', num2str(Ratio), ') - Equilibrium Saturation = ', num2str(Equilibrium_Coverage(Loops))]);
-    
+      
     figure(1);
     hold on;
     if Ratio == 1
@@ -228,42 +231,12 @@ for Ratio = Percent_Monomer
     ylabel('Fractional Coverage');
     xlim([0 max(t(Loops,:))]);
     ylim([0 1]);
-%     yline(Equilibrium_Coverage(Loops),'k',['\rho = ', num2str(Percent_Monomer(Loops))]);
     title('Saturation of DNA Lattice');
     
     if flag == 1
         break
     end
 end
-
-% SortedEquilibrium = zeros(2,length(Percent_Monomer));
-% if ~isempty(find(Percent_Monomer == 0, 1))
-%     SortedEquilibrium(1,1:length(find(Percent_Monomer == 0))) = Equilibrium_Coverage(Percent_Monomer == 0);    %Equilibrium values for monomer only
-%     Mean_Equilibrium_M = sum(SortedEquilibrium(1,:))/numel(find(Percent_Monomer == 0));  %Avg Equilibrium values for monomer only
-%     yline(Mean_Equilibrium_M,'--k', ['\rho = 0 (', num2str(round(Mean_Equilibrium_M,3)), ')'],'LineWidth',1);
-% end
-% if ~isempty(find(Percent_Monomer == 1,1))
-%     SortedEquilibrium(2,1:length(find(Percent_Monomer == 1))) = Equilibrium_Coverage(Percent_Monomer == 1);    %Equilibrium values for dimer only
-%     Mean_Equilibrium_D = sum(SortedEquilibrium(2,:))/numel(find(Percent_Monomer == 6));  %Avg Equilibrium values for dimer only
-%     yline(Mean_Equilibrium_D,'--k', ['\rho = 1 (', num2str(round(Mean_Equilibrium_D,3)), ')'],'LineWidth',1);
-% end
-
-% % Create histogram of filament lengths across the ssDNA lattice
-% FilamentEnds_L = find(diff([0 DNA]) == 1);  %left most position of bound filament
-% FilamentEnds_R = 1+find(diff([DNA 0]) == -1);   %one position to right of right most position of bound filament
-% FilamentLengths = FilamentEnds_R-FilamentEnds_L;    %length of all filaments
-% figure(2);
-% subplot(2,1,1);
-% histogram(FilamentLengths,10);
-% hold on;
-% ylabel('Occurence');
-% xlabel('Filament Length (nt)');
-% title('Filament Length Histograms');
-% subplot(2,1,2);
-% histogram(FilamentLengths./3,10);
-% hold on;
-% xlabel('Filament Length (monomers)');
-% ylabel('Occurence');
 
 Total_Events = zeros(1,length(Percent_Monomer));
 Legend = cell(length(Percent_Monomer),1);
@@ -272,4 +245,3 @@ for c = 1:length(Percent_Monomer)
 end
 figure(1);
 legend(Legend,'location','southeast');
-% xline(1.25,'-.k','Flush','HandleVisibility','off');
